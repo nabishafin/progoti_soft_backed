@@ -22,10 +22,22 @@ const getBlog = async (req, res, next) => {
     }
 };
 
+// tags arrive as a JSON string from multipart forms, or as an array
+const parseTags = (tags) => {
+    if (!tags) return [];
+    if (Array.isArray(tags)) return tags;
+    try {
+        const parsed = JSON.parse(tags);
+        return Array.isArray(parsed) ? parsed : [String(parsed)];
+    } catch {
+        return String(tags).split(',').map((t) => t.trim()).filter(Boolean);
+    }
+};
+
 const createBlog = async (req, res, next) => {
     try {
-        const { title, description, content, category, author, date } = req.body;
-        
+        const { title, description, content, category, author, date, subtitle, conclusion } = req.body;
+
         let image = req.body.image;
         if (req.file) {
             image = req.file.path;
@@ -43,7 +55,10 @@ const createBlog = async (req, res, next) => {
             category,
             author: author || 'Nostrix Team',
             date,
-            image
+            image,
+            subtitle,
+            conclusion,
+            tags: parseTags(req.body.tags)
         });
 
         res.status(201).json(blog);
@@ -62,6 +77,7 @@ const updateBlog = async (req, res, next) => {
         }
 
         let updateData = { ...req.body };
+        if (req.body.tags !== undefined) updateData.tags = parseTags(req.body.tags);
         if (req.file) {
             updateData.image = req.file.path;
         }

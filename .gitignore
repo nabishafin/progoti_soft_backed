@@ -2,3 +2,8 @@ node_modules
 .DS_Store
 *.log
 config.bat
+
+# Environment
+.env
+.env.*
+!.env.example
