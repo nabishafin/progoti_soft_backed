@@ -4,12 +4,15 @@ const bcrypt = require('bcryptjs');
 const userSchema = new mongoose.Schema({
     name: {
         type: String,
-        required: true
+        required: true,
+        trim: true
     },
     email: {
         type: String,
         required: true,
-        unique: true
+        unique: true,
+        lowercase: true,
+        trim: true
     },
     password: {
         type: String,
@@ -19,7 +22,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['admin', 'editor', 'user'],
         default: 'user'
-    }
+    },
+    // Password reset (token is stored hashed, never in plain text)
+    resetPasswordToken: { type: String, select: false },
+    resetPasswordExpire: { type: Date, select: false }
 }, { timestamps: true });
 
 // Hash password before saving

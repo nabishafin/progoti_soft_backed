@@ -1,5 +1,8 @@
-const nodemailer = require('nodemailer');
 const Message = require('../models/Message');
+const { sendEmail, escapeHtml } = require('../utils/sendEmail');
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const STATUSES = Message.schema.path('status').enumValues;
 
 const getMessages = async (req, res, next) => {
     try {
@@ -12,69 +15,67 @@ const getMessages = async (req, res, next) => {
 
 const sendEmailAndSaveMessage = async (req, res, next) => {
     try {
-        const { firstName, lastName, email, phone, subject, message } = req.body;
+        const clean = (v, max) => String(v || '').trim().slice(0, max);
+        const firstName = clean(req.body.firstName, 80);
+        const lastName = clean(req.body.lastName, 80);
+        const email = clean(req.body.email, 200).toLowerCase();
+        const phone = clean(req.body.phone, 40);
+        const subject = clean(req.body.subject, 200);
+        const message = clean(req.body.message, 5000);
 
         if (!firstName || !email || !message) {
             res.status(400);
             throw new Error('Please fill in required fields: firstName, email, and message');
         }
+        if (!EMAIL_RE.test(email)) {
+            res.status(400);
+            throw new Error('Please enter a valid email address');
+        }
 
-        // 1. Save to Database First
-        const savedMessage = await Message.create({
-            firstName,
-            lastName,
-            email,
-            phone,
-            subject,
-            message
-        });
+        // 1. Save to database first (this is the source of truth for the admin inbox)
+        const savedMessage = await Message.create({ firstName, lastName, email, phone, subject, message });
 
-        // 2. Transporter for Nodemailer
-        const transporter = nodemailer.createTransport({
-            host: process.env.EMAIL_HOST,
-            port: process.env.EMAIL_PORT || 587,
-            secure: false, // true for 465, false for other ports
-            auth: {
-                user: process.env.EMAIL_USER,
-                pass: process.env.EMAIL_PASS,
-            },
-        });
+        // 2. Notify by email. A mail failure must not lose the message or fail the request.
+        let emailSent = true;
+        try {
+            await sendEmail({
+                to: process.env.EMAIL_RECEIVER || process.env.EMAIL_USER,
+                replyTo: email,
+                subject: subject || `New form message from ${firstName}`,
+                html: `
+                    <h3>New Contact Request</h3>
+                    <p><strong>Name:</strong> ${escapeHtml(firstName)} ${escapeHtml(lastName)}</p>
+                    <p><strong>Email:</strong> ${escapeHtml(email)}</p>
+                    <p><strong>Phone:</strong> ${escapeHtml(phone) || 'N/A'}</p>
+                    <br>
+                    <p><strong>Message:</strong></p>
+                    <p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>
+                `,
+            });
+        } catch (mailError) {
+            emailSent = false;
+            console.error('Contact email failed:', mailError.message);
+        }
 
-        // 3. Email options
-        const mailOptions = {
-            from: `"${firstName} ${lastName || ''}" <${email}>`,
-            to: process.env.EMAIL_RECEIVER || process.env.EMAIL_USER,
-            subject: subject || `New Form Message from ${firstName}`,
-            html: `
-                <h3>New Contact Request</h3>
-                <p><strong>Name:</strong> ${firstName} ${lastName || ''}</p>
-                <p><strong>Email:</strong> ${email}</p>
-                <p><strong>Phone:</strong> ${phone || 'N/A'}</p>
-                <br>
-                <p><strong>Message:</strong></p>
-                <p>${message.replace(/\n/g, '<br>')}</p>
-            `,
-        };
-
-        // 4. Send Email
-        const info = await transporter.sendMail(mailOptions);
-        console.log("Message sent to Email: %s", info.messageId);
-
-        res.status(200).json({ 
-            success: true, 
-            message: 'Email sent successfully and saved to DB',
+        res.status(200).json({
+            success: true,
+            message: 'Message received',
+            emailSent,
             data: savedMessage
         });
     } catch (error) {
-        console.error(error);
-        res.status(500);
-        next(new Error('Process failed. Could not send email or save.'));
+        next(error);
     }
 };
 
 const updateMessageStatus = async (req, res, next) => {
     try {
         const { status } = req.body;
+        if (!STATUSES.includes(status)) {
+            res.status(400);
+            throw new Error('Invalid status');
+        }
+
         const msg = await Message.findById(req.params.id);
 
         if (!msg) {
@@ -82,9 +83,9 @@ const updateMessageStatus = async (req, res, next) => {
             throw new Error('Message not found');
         }
 
-        msg.status = status || msg.status;
+        msg.status = status;
         await msg.save();
-        
+
         res.status(200).json(msg);
     } catch (error) {
         next(error);
@@ -105,7 +106,7 @@ const deleteMessage = async (req, res, next) => {
     }
 };
 
-module.exports = { 
+module.exports = {
     getMessages,
     sendEmailAndSaveMessage,
     updateMessageStatus,
