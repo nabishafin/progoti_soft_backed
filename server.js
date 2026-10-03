@@ -43,9 +43,17 @@ const allowedOrigins = (process.env.CLIENT_URL || '')
     .split(',')
     .map((o) => o.trim().replace(/\/$/, ''))
     .filter(Boolean);
+// In development Vite may pick any free port (5173, 5174, ...), so allow any localhost port
+const isDev = process.env.NODE_ENV !== 'production';
+const isLocalhost = (origin) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
 app.use(cors({
     origin: allowedOrigins.length
-        ? (origin, cb) => (!origin || allowedOrigins.includes(origin) ? cb(null, true) : cb(null, false))
+        ? (origin, cb) => (
+            !origin || allowedOrigins.includes(origin) || (isDev && isLocalhost(origin))
+                ? cb(null, true)
+                : cb(null, false)
+        )
         : true,
 }));
 
