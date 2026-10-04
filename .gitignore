@@ -4,6 +4,4 @@ node_modules
 config.bat
 
 # Environment
-.env
-.env.*
 !.env.example
